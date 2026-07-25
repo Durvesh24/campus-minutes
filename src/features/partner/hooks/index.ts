@@ -1,0 +1,2 @@
+// partner hooks module
+export {};

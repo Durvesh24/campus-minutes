@@ -1,0 +1,2 @@
+// admin constants module
+export {};

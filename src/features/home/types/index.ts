@@ -1,0 +1,2 @@
+// home types module
+export {};

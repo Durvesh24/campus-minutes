@@ -1,0 +1,2 @@
+// admin components module
+export {};

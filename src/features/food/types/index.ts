@@ -1,0 +1,2 @@
+// food types module
+export {};

@@ -1,0 +1,2 @@
+// partner types module
+export {};

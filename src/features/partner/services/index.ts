@@ -1,0 +1,2 @@
+// partner services module
+export {};

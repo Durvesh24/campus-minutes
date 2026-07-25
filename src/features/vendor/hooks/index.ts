@@ -1,0 +1,2 @@
+// vendor hooks module
+export {};

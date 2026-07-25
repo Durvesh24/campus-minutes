@@ -1,0 +1,2 @@
+// vendor types module
+export {};

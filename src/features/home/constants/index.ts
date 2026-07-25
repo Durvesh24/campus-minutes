@@ -1,0 +1,2 @@
+// home constants module
+export {};

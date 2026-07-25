@@ -1,0 +1,2 @@
+// vendor constants module
+export {};

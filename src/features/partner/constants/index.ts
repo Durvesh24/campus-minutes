@@ -1,0 +1,2 @@
+// partner constants module
+export {};

@@ -1,0 +1,2 @@
+// partner actions module
+export {};

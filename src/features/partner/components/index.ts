@@ -1,0 +1,2 @@
+// partner components module
+export {};

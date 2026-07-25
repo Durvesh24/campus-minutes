@@ -1,0 +1,2 @@
+// vendor actions module
+export {};

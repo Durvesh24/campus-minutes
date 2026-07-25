@@ -1,0 +1,2 @@
+// vendor schemas module
+export {};

@@ -1,0 +1,2 @@
+// food constants module
+export {};

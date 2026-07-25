@@ -1,0 +1,2 @@
+// admin hooks module
+export {};

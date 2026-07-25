@@ -1,0 +1,2 @@
+// partner schemas module
+export {};
