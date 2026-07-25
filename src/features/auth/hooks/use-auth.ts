@@ -12,17 +12,19 @@ export function useAuth() {
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cooldown, setCooldown] = useState(0);
+  const [cooldown, setCooldown] = useState<number>(0);
 
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setInterval(() => {
-      setCooldown((prev) => prev - 1);
+      setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
   }, [cooldown]);
 
   const sendOtp = async (inputEmail: string) => {
+    if (isLoading || cooldown > 0) return false;
+
     setIsLoading(true);
     setError(null);
 
@@ -30,7 +32,7 @@ export function useAuth() {
     setIsLoading(false);
 
     if (!result.success) {
-      setError(result.error || 'Failed to send OTP code');
+      setError(result.error || 'Failed to send verification code. Please try again.');
       return false;
     }
 
@@ -41,18 +43,23 @@ export function useAuth() {
 
   const verifyOtp = async (inputOtp?: string) => {
     const codeToVerify = inputOtp || otp;
+    if (isLoading || codeToVerify.length !== 6) return false;
+
     setIsLoading(true);
     setError(null);
 
     const result = await verifyOtpAction(email, codeToVerify);
-    setIsLoading(false);
 
     if (!result.success) {
-      setError(result.error || 'Invalid OTP code');
+      setIsLoading(false);
+      setError(
+        result.error ||
+          'The verification code you entered is incorrect. Please check and try again.'
+      );
       return false;
     }
 
-    // Successfully authenticated - redirect to main application route
+    // Keep isLoading true while redirecting
     router.push(AUTH_CONSTANTS.DEFAULT_REDIRECT);
     return true;
   };

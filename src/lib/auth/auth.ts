@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { emailOTP } from 'better-auth/plugins';
 import { prisma } from '@/lib/db/prisma';
+import { EmailService } from '@/features/auth/services/email.service';
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -21,14 +22,14 @@ export const auth = betterAuth({
   },
   plugins: [
     emailOTP({
-      async sendVerificationOTP({ email, otp, type }) {
-        // Sprint 2.3 Placeholder: Log OTP to server console (Resend integration in Sprint 2.3)
-        console.log(
-          `[AUTH OTP SPRINT 2.2 DEV LOG] Target Email: ${email} | Code: ${otp} | Type: ${type}`
-        );
+      async sendVerificationOTP({ email, otp }) {
+        const result = await EmailService.sendOtpEmail(email, otp);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to deliver verification email');
+        }
       },
       otpLength: 6,
-      expiresIn: 600, // 10 minutes
+      expiresIn: 600, // 10 minutes expiry
     }),
   ],
   session: {

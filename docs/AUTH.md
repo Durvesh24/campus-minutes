@@ -1,14 +1,28 @@
-# Authentication Architecture & Better Auth Specification
+# Authentication Architecture & Better Auth / Resend Email Specification
 
 ## Overview
 
-Campus Minutes implements a **Passwordless Email OTP** authentication system powered by **Better Auth** and integrated with **Prisma ORM** on PostgreSQL.
+Campus Minutes implements a **Passwordless Email OTP** authentication system powered by **Better Auth** with a **Prisma PostgreSQL Adapter**, backed by **Resend** for production transactional email delivery.
 
 There are **no passwords** and **no signup forms**. Authentication automatically authenticates existing users or creates a new user record upon first successful OTP verification.
 
 ---
 
-## Complete Authentication Flow
+## Environment Variables Configuration
+
+The following environment variables are strictly validated via `@t3-oss/env-nextjs` in [`src/env.ts`](file:///d:/All%20Projects/CampusMinutes/src/env.ts):
+
+| Variable              | Description                                     | Example / Default                             |
+| --------------------- | ----------------------------------------------- | --------------------------------------------- |
+| `RESEND_API_KEY`      | Resend API Key for transactional emails         | `re_123456789_example`                        |
+| `FROM_EMAIL`          | Sender email address with brand display name    | `Campus Minutes <auth@campusminutes.com>`     |
+| `APP_NAME`            | Application brand name                          | `Campus Minutes`                              |
+| `NEXT_PUBLIC_APP_URL` | Public application URL                          | `http://localhost:3000`                       |
+| `AUTH_SECRET`         | Secret key for session encryption & JWT signing | `development_secret_key_change_in_production` |
+
+---
+
+## Production Email Delivery Flow (Resend)
 
 ```mermaid
 sequenceDiagram
@@ -17,19 +31,22 @@ sequenceDiagram
     participant Page as /login & /verify Pages
     participant Action as Server Actions (sendOtp & verifyOtp)
     participant BetterAuth as Better Auth Handler (/api/auth/*)
+    participant EmailService as EmailService (Resend API)
     participant DB as PostgreSQL (Prisma)
 
     Student->>Page: Enters Email Address
     Page->>Action: Triggers sendOtpAction(email)
     Action->>BetterAuth: auth.api.sendVerificationOTP({ email, type: 'sign-in' })
-    BetterAuth->>DB: Stores OTP record in 'verifications' table
-    BetterAuth-->>Page: OTP generated & sent (Dev console log placeholder)
+    BetterAuth->>DB: Stores 6-digit OTP code in 'verifications' table
+    BetterAuth->>EmailService: EmailService.sendOtpEmail(email, otp)
+    EmailService->>EmailService: Renders renderOtpEmailHtml({ otp, appName })
+    EmailService-->>Student: Delivers Email via Resend API
     Page->>Student: Redirects to /verify?email=...
 
     Student->>Page: Enters 6-digit OTP Code
     Page->>Action: Triggers verifyOtpAction(email, otp)
     Action->>BetterAuth: auth.api.signInEmailOTP({ email, otp })
-    BetterAuth->>DB: Validates OTP code against 'verifications' table
+    BetterAuth->>DB: Validates OTP code & expiration
 
     alt User Exists
         BetterAuth->>DB: Fetches User record
@@ -44,70 +61,31 @@ sequenceDiagram
 
 ---
 
-## Session Architecture & Security Policies
+## OTP Lifecycle & Business Rules
 
-1. **Prisma Database Adapter**:
-   Session states are persisted in PostgreSQL via Prisma (`sessions`, `accounts`, `verifications` tables).
-
-2. **HTTP-Only Cookie Storage**:
-   Session tokens are stored exclusively in HTTP-only, `SameSite=Lax` cookies, preventing client-side XSS token theft.
-
-3. **Session Lifetime & Rotation**:
-   - **Expiration**: 7 days (`expiresIn: 60 * 60 * 24 * 7`).
-   - **Rotation / Update Age**: 1 day (`updateAge: 60 * 60 * 24`).
-   - **Cache**: 5 minutes cookie caching enabled.
-
-4. **CSRF & Email Validation**:
-   - All email inputs are validated and normalized to lowercase via Zod (`emailSchema`).
-   - Anti-CSRF protection enforced on all state-changing auth endpoints.
+- **OTP Length**: Exactly 6 digits (`000000` – `999999`).
+- **OTP Expiration**: 10 minutes (`expiresIn: 600` seconds).
+- **Resend Cooldown**: 60 seconds enforced on client & server (`AUTH_CONSTANTS.RESEND_COOLDOWN_SECONDS`).
+- **Maximum Attempts**: 5 invalid attempts allowed per verification cycle before requiring a new OTP code.
 
 ---
 
-## Better Auth Configuration Setup
+## Error Handling & Security Policies
 
-- **Server Instance**: [`src/lib/auth/auth.ts`](file:///d:/All%20Projects/CampusMinutes/src/lib/auth/auth.ts)
-  Configured with `prismaAdapter(prisma)`, `emailOTP` plugin, disabled password logins, and dev console OTP logging (Sprint 2.3 placeholder for Resend).
-- **Client Instance**: [`src/lib/auth/auth-client.ts`](file:///d:/All%20Projects/CampusMinutes/src/lib/auth/auth-client.ts)
-  Configured with `createAuthClient` and `emailOTPClient()`.
-- **API Handler**: [`src/app/api/auth/[...all]/route.ts`](file:///d:/All%20Projects/CampusMinutes/src/app/api/auth/%5B...all%5D/route.ts)
-  Exposes `GET` and `POST` routes via `toNextJsHandler(auth.handler)`.
-
----
-
-## Feature Folder Structure (`src/features/auth/`)
-
-```
-src/features/auth/
-├── actions/
-│   ├── send-otp.action.ts      # Server Action to request OTP code
-│   ├── verify-otp.action.ts    # Server Action to verify OTP & authenticate
-│   └── index.ts
-├── components/
-│   ├── LoginForm.tsx           # Email entry UI component
-│   ├── VerifyForm.tsx          # 6-digit OTP verification UI component
-│   └── index.ts
-├── constants/
-│   ├── auth.constants.ts       # OTP expiry & route constants
-│   └── index.ts
-├── hooks/
-│   ├── use-auth.ts             # Custom React hook for auth state & cooldowns
-│   └── index.ts
-├── schemas/
-│   ├── auth.schema.ts          # Zod validation schemas for Email & OTP
-│   └── index.ts
-├── services/
-│   ├── auth.service.ts         # Server-side session verification service
-│   └── index.ts
-├── types/
-│   ├── auth.types.ts           # Auth user & payload interfaces
-│   └── index.ts
-└── index.ts                    # Public API surface export
-```
+1. **Email Input Validation**: Normalized to lowercase and validated via Zod (`emailSchema`).
+2. **Delivery Failures**: Caught gracefully by `EmailService.sendOtpEmail()` and logged to server error output without exposing internal API keys or OTP codes in production logs.
+3. **Expired & Invalid OTP**: User-friendly error messages returned via Server Actions to the UI.
+4. **Logging Policy**:
+   - **Development**: Log delivery status and message IDs.
+   - **Production**: **NEVER** log OTP codes. Log delivery failures only.
 
 ---
 
-## Routes & Navigation Targets
+## Service Layer & Modular Structure
 
-- **`/login`**: Email address entry page.
-- **`/verify`**: OTP code entry page.
-- **`/app`**: Authenticated dashboard target route after successful login.
+- **Email Service**: [`src/features/auth/services/email.service.ts`](file:///d:/All%20Projects/CampusMinutes/src/features/auth/services/email.service.ts)
+  Handles Resend API calls and fallback modes.
+- **Email Template**: [`src/lib/email/otp-template.ts`](file:///d:/All%20Projects/CampusMinutes/src/lib/email/otp-template.ts)
+  Generates responsive HTML emails with Campus Minutes branding, greeting, OTP code block, 10-minute expiry warning, and security notice.
+- **Better Auth Integration**: [`src/lib/auth/auth.ts`](file:///d:/All%20Projects/CampusMinutes/src/lib/auth/auth.ts)
+  Hooks `EmailService.sendOtpEmail` directly into the `sendVerificationOTP` plugin callback.
