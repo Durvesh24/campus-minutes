@@ -7,4 +7,318 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Models will be defined when database schema requirement is executed.
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserRole {
+  STUDENT
+  VENDOR
+  DELIVERY_PARTNER
+  ADMIN
+}
+
+enum VendorType {
+  CANTEEN
+  XEROX
+}
+
+enum VendorStatus {
+  OPEN
+  CLOSED
+  BUSY
+  INACTIVE
+}
+
+enum OrderType {
+  FOOD
+  PRINT
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum NotificationType {
+  ORDER_UPDATE
+  PRINT_UPDATE
+  DELIVERY_UPDATE
+  PROMOTIONAL
+  SYSTEM
+}
+
+enum ColorMode {
+  BLACK_AND_WHITE
+  COLOR
+}
+
+enum BindingType {
+  NONE
+  STAPLE
+  SPIRAL
+  HARD_BOUND
+}
+
+enum PaperSize {
+  A4
+  A3
+  A5
+  LETTER
+  LEGAL
+}
+
+enum DeliveryPartnerStatus {
+  AVAILABLE
+  BUSY
+  OFFLINE
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id        String    @id @default(uuid())
+  name      String?
+  email     String    @unique
+  image     String?
+  role      UserRole  @default(STUDENT)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  cart            Cart?
+  orders          Order[]
+  notifications   Notification[]
+  vendor          Vendor?
+  deliveryPartner DeliveryPartner?
+
+  @@index([email])
+  @@index([role])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Vendor {
+  id              String       @id @default(uuid())
+  name            String
+  description     String?
+  type            VendorType
+  status          VendorStatus @default(OPEN)
+  acceptingOrders Boolean      @default(true)
+  ownerId         String?      @unique
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  // Relations
+  owner          User?          @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  foodCategories FoodCategory[]
+  foodItems      FoodItem[]
+  orders         Order[]
+
+  @@index([type])
+  @@index([status])
+  @@index([acceptingOrders])
+  @@index([deletedAt])
+  @@map("vendors")
+}
+
+model FoodCategory {
+  id          String    @id @default(uuid())
+  vendorId    String
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  // Relations
+  vendor    Vendor     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  foodItems FoodItem[]
+
+  @@unique([vendorId, name])
+  @@index([vendorId])
+  @@index([deletedAt])
+  @@map("food_categories")
+}
+
+model FoodItem {
+  id              String    @id @default(uuid())
+  vendorId        String
+  categoryId      String
+  name            String
+  description     String?
+  price           Decimal   @db.Decimal(10, 2)
+  image           String?
+  available       Boolean   @default(true)
+  preparationTime Int? // In minutes
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  // Relations
+  vendor     Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  category   FoodCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@index([vendorId])
+  @@index([categoryId])
+  @@index([available])
+  @@index([deletedAt])
+  @@map("food_items")
+}
+
+model Cart {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+
+  @@index([userId])
+  @@map("carts")
+}
+
+model CartItem {
+  id         String   @id @default(uuid())
+  cartId     String
+  foodItemId String
+  quantity   Int      @default(1)
+  price      Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  cart     Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, foodItemId])
+  @@index([cartId])
+  @@index([foodItemId])
+  @@map("cart_items")
+}
+
+model Order {
+  id                   String      @id @default(uuid())
+  type                 OrderType
+  userId               String
+  vendorId             String
+  deliveryPartnerId    String?
+  status               OrderStatus @default(PLACED)
+  total                Decimal     @db.Decimal(10, 2)
+  deliveryLocation     String
+  deliveryInstructions String?
+  estimatedReadyTime   DateTime?
+  estimatedDeliveryTime DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  deletedAt            DateTime?
+
+  // Relations
+  user              User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  vendor            Vendor             @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  deliveryPartner   DeliveryPartner?   @relation(fields: [deliveryPartnerId], references: [id], onDelete: SetNull)
+  items             OrderItem[]
+  printOrderDetails PrintOrderDetails?
+
+  @@index([userId])
+  @@index([vendorId])
+  @@index([deliveryPartnerId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([userId, createdAt])
+  @@index([vendorId, status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  foodItemId String
+  quantity   Int
+  price      Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([foodItemId])
+  @@map("order_items")
+}
+
+model PrintOrderDetails {
+  id        String      @id @default(uuid())
+  orderId   String      @unique
+  pdfUrl    String
+  pages     Int
+  copies    Int         @default(1)
+  colorMode ColorMode   @default(BLACK_AND_WHITE)
+  paperSize PaperSize   @default(A4)
+  binding   BindingType @default(NONE)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Relations
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("print_order_details")
+}
+
+model DeliveryPartner {
+  id                  String                @id @default(uuid())
+  userId              String?               @unique
+  name                String
+  phone               String
+  status              DeliveryPartnerStatus @default(OFFLINE)
+  rating              Float                 @default(5.0)
+  completedDeliveries Int                   @default(0)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  deletedAt           DateTime?
+
+  // Relations
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orders Order[]
+
+  @@index([status])
+  @@index([phone])
+  @@index([deletedAt])
+  @@map("delivery_partners")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  title     String
+  body      String
+  actionUrl String?
+  readAt    DateTime?
+  type      NotificationType
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @default(now()) @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([readAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
