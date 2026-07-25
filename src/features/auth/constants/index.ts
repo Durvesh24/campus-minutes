@@ -1,2 +1,1 @@
-// auth constants module
-export {};
+export * from './auth.constants';

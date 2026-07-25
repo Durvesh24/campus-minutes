@@ -1,2 +1,1 @@
-// auth services module
-export {};
+export * from './auth.service';

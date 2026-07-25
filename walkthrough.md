@@ -1,70 +1,76 @@
-# Architecture & Database Refactoring Walkthrough
+# Architecture & Authentication Implementation Walkthrough
 
-## Summary of Architectural Upgrades
+## Summary of Completed Tasks
 
-The **Campus Minutes** database architecture has been updated based on Principal Backend Architect review feedback to introduce a **Unified Order Architecture**.
-
----
-
-## 1. Primary Architectural Refactoring: Unified `Order` Model
-
-- **Change**: Replaced separate `Order` and `PrintOrder` models with a single unified `Order` entity.
-- **Order Type Enum**: `OrderType` (`FOOD` | `PRINT`).
-- **One-to-Many Food Items**: Food orders map to `OrderItem[]`.
-- **One-to-One Print Specifications**: Print orders link to `PrintOrderDetails` (`pdfUrl`, `pages`, `copies`, `colorMode`, `paperSize`, `binding`) via `orderId` unique foreign key.
-- **Zero Redundancy**: Common transactional data (`userId`, `vendorId`, `deliveryPartnerId`, `status`, `total`, `deliveryLocation`, `deliveryInstructions`, timestamps) lives exclusively on `Order`.
+The **Passwordless Email OTP Authentication** layer for **Campus Minutes** has been fully implemented using **Better Auth** with the **Prisma PostgreSQL Adapter**.
 
 ---
 
-## 2. Standardized Order Lifecycle (`OrderStatus`)
+## 1. Authentication Flow Implemented
 
-Unified state machine for both food and Xerox printing:
-`PLACED` → `CONFIRMED` → `PREPARING` → `READY_FOR_PICKUP` → `OUT_FOR_DELIVERY` → `DELIVERED` | `CANCELLED`
-
----
-
-## 3. Delivery Partner Simplification
-
-- `DeliveryPartner` relates exclusively to `Order` (`orders Order[]`). Direct relation to `PrintOrder` removed.
-
----
-
-## 4. Vendor Operational Control (`Vendor`)
-
-- Retained `VendorStatus` (`OPEN`, `CLOSED`, `BUSY`, `INACTIVE`).
-- Added `acceptingOrders` boolean (`default true`) allowing vendors to temporarily pause incoming orders without altering store operating status.
+1. **Email Input (`/login`)**:
+   Student/user inputs their email address. Validated and normalized (trimmed + lowercased) via `emailSchema`.
+2. **OTP Dispatch**:
+   Calls `sendOtpAction(email)`, which executes `auth.api.sendVerificationOTP({ email, type: 'sign-in' })`. Generates a 6-digit OTP code stored in `verifications` table (Sprint 2.2 logs OTP to dev console; Resend integration scheduled for Sprint 2.3).
+3. **OTP Input & Verification (`/verify?email=...`)**:
+   Student inputs the 6-digit OTP code (`otpSchema` validation). Calls `verifyOtpAction(email, otp)`, executing `auth.api.signInEmailOTP({ email, otp })`.
+4. **Automatic User Creation / Session Establishment**:
+   - If existing user → Authenticates and creates session.
+   - If new user → Automatically creates User record (`UserRole.STUDENT`) without passwords or signup pages.
+5. **Secure Session Cookie & Redirect**:
+   Issues HTTP-only session cookie (`SameSite=Lax`, 7-day expiration, 1-day rotation) and redirects user to `/app`.
 
 ---
 
-## 5. Enhanced Notification Schema (`Notification`)
+## 2. Better Auth Configuration
 
-- Replaced `read` boolean with `readAt` (`DateTime?`).
-- Replaced `message` with `body`.
-- Added `actionUrl` (`String?`) for deep-linking.
+- **Server Instance ([`src/lib/auth/auth.ts`](file:///d:/All%20Projects/CampusMinutes/src/lib/auth/auth.ts))**:
+  - `prismaAdapter(prisma)` targeting PostgreSQL.
+  - `emailOTP` plugin with 6-digit code generation & 10-minute expiry.
+  - `emailAndPassword: { enabled: false }` (No passwords).
+  - Session expiration: 7 days (`expiresIn: 60 * 60 * 24 * 7`).
+  - Session rotation: 1 day (`updateAge: 60 * 60 * 24`).
+- **Client Instance ([`src/lib/auth/auth-client.ts`](file:///d:/All%20Projects/CampusMinutes/src/lib/auth/auth-client.ts))**:
+  - Configured with `createAuthClient` and `emailOTPClient()`.
+- **API Handler ([`src/app/api/auth/[...all]/route.ts`](file:///d:/All%20Projects/CampusMinutes/src/app/api/auth/%5B...all%5D/route.ts))**:
+  - Exposes Next.js 15 App Router handler via `toNextJsHandler(auth.handler)`.
 
 ---
 
-## 6. Simplified Food Item Specification (`FoodItem`)
+## 3. Database Schema Tables (`prisma/schema.prisma`)
 
-- Removed `veg` flag (Campus Minutes serves 100% vegetarian food).
-- Maintained `available` boolean (`default true`).
+- Added `emailVerified Boolean @default(false)` to `User` model.
+- Added `Session` model (`id`, `token`, `expiresAt`, `userId`, `ipAddress`, `userAgent`, timestamps).
+- Added `Account` model (`id`, `accountId`, `providerId`, `userId`, tokens, timestamps).
+- Added `Verification` model (`id`, `identifier`, `value`, `expiresAt`, timestamps).
 
 ---
 
-## 7. Performance & Indexing Highlights
+## 4. Modular Auth Architecture (`src/features/auth/`)
 
-- Added composite index `[userId, createdAt]` on `orders` for instant, single-query student order history retrieval without `UNION` queries.
-- Added composite index `[vendorId, status]` on `orders` for high-throughput live vendor dashboards.
-- Indexing `deletedAt` for soft deletion filtering.
+- **`schemas/`**: `auth.schema.ts` (Zod `emailSchema` with lowercasing & `otpSchema`).
+- **`types/`**: `auth.types.ts` (`AuthUser`, `AuthSession`, `SendOtpParams`, `VerifyOtpParams`, `AuthActionResult`).
+- **`constants/`**: `auth.constants.ts` (`OTP_LENGTH`, `RESEND_COOLDOWN_SECONDS`, `DEFAULT_REDIRECT`).
+- **`services/`**: `auth.service.ts` (Server-side session validation via `headers()`).
+- **`actions/`**: `send-otp.action.ts` & `verify-otp.action.ts` (Type-safe Server Actions).
+- **`hooks/`**: `use-auth.ts` (React hook handling OTP state & cooldown timers).
+- **`components/`**: `LoginForm.tsx` & `VerifyForm.tsx` (Clean form UI components).
+
+---
+
+## 5. Page Routes & Documentation
+
+- **`/login`**: Email entry page ([`src/app/login/page.tsx`](file:///d:/All%20Projects/CampusMinutes/src/app/login/page.tsx)).
+- **`/verify`**: OTP verification page ([`src/app/verify/page.tsx`](file:///d:/All%20Projects/CampusMinutes/src/app/verify/page.tsx)).
+- **`/app`**: Authenticated dashboard target page ([`src/app/app/page.tsx`](file:///d:/All%20Projects/CampusMinutes/src/app/app/page.tsx)).
+- **`docs/AUTH.md`**: Complete authentication flow sequence diagram, session architecture, and Better Auth configuration documentation.
 
 ---
 
 ## Verification Results
 
-| Check                      | Command                   | Status                          |
-| -------------------------- | ------------------------- | ------------------------------- |
-| **Prisma Generation**      | `npx prisma generate`     | ✅ **v6.19.3 Client Generated** |
-| **SQL Migration Script**   | `npx prisma migrate diff` | ✅ **Valid DDL Generated**      |
-| **TypeScript Compilation** | `npm run type-check`      | ✅ **0 Errors**                 |
-| **ESLint Check**           | `npm run lint`            | ✅ **0 Warnings / Errors**      |
-| **Prettier Formatting**    | `npm run format:check`    | ✅ **Passed**                   |
+| Check                      | Command                | Status                          |
+| -------------------------- | ---------------------- | ------------------------------- |
+| **Prisma Generation**      | `npx prisma generate`  | ✅ **v6.19.3 Client Generated** |
+| **TypeScript Compilation** | `npm run type-check`   | ✅ **0 Errors**                 |
+| **Prettier Formatting**    | `npm run format:check` | ✅ **Passed**                   |

@@ -1,2 +1,1 @@
-// auth schemas module
-export {};
+export * from './auth.schema';

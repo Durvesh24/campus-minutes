@@ -1,2 +1,1 @@
-// auth hooks module
-export {};
+export * from './use-auth';

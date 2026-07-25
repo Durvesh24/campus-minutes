@@ -1,2 +1,1 @@
-// auth types module
-export {};
+export * from './auth.types';
